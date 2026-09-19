@@ -1,7 +1,8 @@
 <launch>
 
   <!-- Declare launch arguments -->
-
+  <arg name="obstacle" default="0.0"/>
+  <arg name="degrees" default="0.0"/>
   <!-- Include RViz launch file -->
 
     <!-- Node definition -->
@@ -13,7 +14,8 @@
     emulate_tty="true">
 
     <!-- Parameters -->
-
+    <param name="obstacle" value="$(var obstacle)"/>
+    <param name="degrees" value="$(var degrees)"/>
   </node>
 
   <!-- Group with explicit namespace push -->
