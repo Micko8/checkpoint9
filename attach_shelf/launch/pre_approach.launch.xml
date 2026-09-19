@@ -1,0 +1,21 @@
+<launch>
+
+  <!-- Declare launch arguments -->
+
+  <!-- Include RViz launch file -->
+
+    <!-- Node definition -->
+  <node
+    pkg="attach_shelf"
+    exec="preapproach_exe"
+    name="preapproach_node"
+    output="screen"
+    emulate_tty="true">
+
+    <!-- Parameters -->
+
+  </node>
+
+  <!-- Group with explicit namespace push -->
+
+</launch>

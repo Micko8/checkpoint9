@@ -12,8 +12,8 @@ find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 
-add_executable(pre_approach_node src/pre_approach.cpp)
-ament_target_dependencies(pre_approach_node rclcpp geometry_msgs sensor_msgs rclcpp nav_msgs)
+add_executable(preapproach_exe src/pre_approach.cpp)
+ament_target_dependencies(preapproach_exe rclcpp geometry_msgs sensor_msgs rclcpp nav_msgs)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -28,8 +28,13 @@ if(BUILD_TESTING)
 endif()
 
 install(TARGETS
-  pre_approach_node
+  preapproach_exe
   DESTINATION lib/${PROJECT_NAME}
+)
+
+install(
+  DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}
 )
 
 ament_package()

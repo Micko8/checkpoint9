@@ -7,7 +7,10 @@
 
 class PreApproach : public rclcpp::Node {
 public:
-  PreApproach() : Node("move_robot_node") {}
+  PreApproach() : Node("preapproach_node") {
+
+    RCLCPP_INFO(this->get_logger(), "Preapproach : Constructor");
+  }
 
 private:
 };
