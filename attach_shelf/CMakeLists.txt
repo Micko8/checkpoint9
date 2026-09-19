@@ -33,7 +33,7 @@ install(TARGETS
 )
 
 install(
-  DIRECTORY launch
+  DIRECTORY launch rviz_config
   DESTINATION share/${PROJECT_NAME}
 )
 

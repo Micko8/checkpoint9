@@ -3,8 +3,10 @@
   <!-- Declare launch arguments -->
   <arg name="obstacle" default="0.0"/>
   <arg name="degrees" default="0.0"/>
+  
   <!-- Include RViz launch file -->
-
+  <include file="$(find-pkg-share attach_shelf)/launch/start_rviz.launch.py">
+  </include>
     <!-- Node definition -->
   <node
     pkg="attach_shelf"
