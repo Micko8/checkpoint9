@@ -11,9 +11,11 @@ find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 
 add_executable(preapproach_exe src/pre_approach.cpp)
-ament_target_dependencies(preapproach_exe rclcpp geometry_msgs sensor_msgs rclcpp nav_msgs)
+ament_target_dependencies(preapproach_exe rclcpp geometry_msgs sensor_msgs rclcpp nav_msgs tf2 tf2_geometry_msgs)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

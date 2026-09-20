@@ -6,9 +6,15 @@
 #include <chrono>
 #include <sensor_msgs/msg/laser_scan.hpp>
 
+#include <cmath>
+#include <limits>
+#include <tf2/LinearMath/Matrix3x3.h>
+#include <tf2/LinearMath/Quaternion.h>
+
 class PreApproach : public rclcpp::Node {
 public:
-  PreApproach() : Node("preapproach_node") {
+  PreApproach()
+      : Node("preapproach_node"), is_moving_(true), is_turning_(false) {
 
     RCLCPP_INFO(this->get_logger(), "Preapproach : Constructor");
 
@@ -27,8 +33,6 @@ public:
     qos_profile.reliability(RMW_QOS_POLICY_RELIABILITY_RELIABLE);
     qos_profile.durability(RMW_QOS_POLICY_DURABILITY_VOLATILE);
 
-    is_moving_ = true; // To be put somewhere else
-
     publisher_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel",
                                                                    qos_profile);
 
@@ -39,6 +43,10 @@ public:
     subscriber_laser_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
         "/scan", qos_profile,
         std::bind(&PreApproach::laser_callback, this, std::placeholders::_1));
+
+    subscriber_odom_ = this->create_subscription<nav_msgs::msg::Odometry>(
+        "/odom", qos_profile,
+        std::bind(&PreApproach::odom_callback, this, std::placeholders::_1));
   }
 
 private:
@@ -65,13 +73,15 @@ private:
 
       RCLCPP_INFO(this->get_logger(), "Front wall detected !");
       is_moving_ = false;
+      yaw_at_turn_start_ = yaw_;
+      is_turning_ = true;
     }
   }
 
   void timer_callback() {
     auto msg = geometry_msgs::msg::Twist();
 
-    if (is_moving_) {
+    if (!is_turning_ && is_moving_) {
 #if 0
       // Normalisation dans [-pi, pi] : sans elle, un cap qui traverse +/-pi
       // fait sauter la difference a +/-2pi et le virage s'arrete aussitot.
@@ -91,26 +101,48 @@ private:
       RCLCPP_INFO(this->get_logger(), "Moving Forward");
       msg.linear.x = 0.5;
       msg.angular.z = 0.0;
+    } else if (is_turning_) {
+      msg.linear.x = 0.0;
+      msg.angular.z = 2.0;
+      RCLCPP_INFO(this->get_logger(), "Rotating.");
+
+      double delta = yaw_ - yaw_at_turn_start_;
+      if (std::abs(delta) < 0.2) {
+        is_turning_ = false;
+        RCLCPP_INFO(this->get_logger(), "Rotation Complete.");
+      }
+
     } else {
       msg.linear.x = 0.0;
       msg.angular.z = 0.0;
+      RCLCPP_INFO(this->get_logger(), "Robot Stropped.");
     }
 
     publisher_->publish(msg);
   }
 
-  /*
-  laser_scan_ = *msg;
-  laser_data_received_ = true;
-*/
+  void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg) {
+    tf2::Quaternion q(
+        msg->pose.pose.orientation.x, msg->pose.pose.orientation.y,
+        msg->pose.pose.orientation.z, msg->pose.pose.orientation.w);
+    tf2::Matrix3x3 m(q);
+    double roll, pitch;
+    m.getRPY(roll, pitch, yaw_);
+  }
 
   float obstacle_;
   int degrees_;
   bool is_moving_;
+
+  double yaw_;
+  double yaw_at_turn_start_;
+  bool is_turning_;
+
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr
       subscriber_laser_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr publisher_;
   rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr subscriber_odom_;
 };
 
 int main(int argc, char *argv[]) {
