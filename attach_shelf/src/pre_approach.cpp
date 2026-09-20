@@ -63,17 +63,20 @@ private:
       return;
     }
 
-    // Only check straight ahead
-    float front = msg->ranges[99];
+    // Calcule l'index qui pointe droit devant
+    int front_index = static_cast<int>(-msg->angle_min / msg->angle_increment);
+    float front = msg->ranges[front_index];
 
-    RCLCPP_INFO(this->get_logger(), "front=%.2f", front);
+    RCLCPP_INFO(this->get_logger(), "Front index: %d, front=%.2f", front_index,
+                front);
+
     is_moving_ = true;
 
     if (front < obstacle_) {
       RCLCPP_INFO(this->get_logger(), "Front wall detected !");
       is_moving_ = false;
       yaw_at_turn_start_ = yaw_;
-      target_yaw_ = yaw_at_turn_start_ + (degrees_ * M_PI / 180.0);
+      target_yaw_ = std::round(yaw_at_turn_start_ + (degrees_ * M_PI / 180.0));
       RCLCPP_INFO(this->get_logger(),
                   "Starting rotation: from %.3f to %.3f rad",
                   yaw_at_turn_start_, target_yaw_);
@@ -93,7 +96,7 @@ private:
 
       if (degrees_ != 0.0) {
         // Rotate in direction of degrees_
-        msg.angular.z = (degrees_ < 0) ? -1.5 : 1.5;
+        msg.angular.z = (degrees_ < 0.0) ? -0.5 : 0.5;
 
         // Calculate angle difference (handle wrap-around)
         double yaw_diff = target_yaw_ - yaw_;
