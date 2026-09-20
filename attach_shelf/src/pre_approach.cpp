@@ -4,17 +4,18 @@
 #include "rmw/types.h"
 #include <algorithm>
 #include <chrono>
-#include <sensor_msgs/msg/laser_scan.hpp>
-
 #include <cmath>
 #include <limits>
+#include <sensor_msgs/msg/laser_scan.hpp>
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <tf2/LinearMath/Quaternion.h>
 
 class PreApproach : public rclcpp::Node {
 public:
   PreApproach()
-      : Node("preapproach_node"), is_moving_(true), is_turning_(false) {
+      : Node("preapproach_node"), is_moving_(true), is_turning_(false),
+        laser_initialized_(false), yaw_(0.0), yaw_at_turn_start_(0.0),
+        target_yaw_(0.0) {
 
     RCLCPP_INFO(this->get_logger(), "Preapproach : Constructor");
 
@@ -51,6 +52,13 @@ public:
 
 private:
   void laser_callback(const sensor_msgs::msg::LaserScan::SharedPtr msg) {
+
+    // Just log initialization once
+    if (!laser_initialized_) {
+      RCLCPP_INFO(this->get_logger(), "Laser initialized");
+      laser_initialized_ = true;
+    }
+
     if (!is_moving_) {
       return;
     }
@@ -62,18 +70,13 @@ private:
     is_moving_ = true;
 
     if (front < obstacle_) {
-      /*
-            // Snapshot yaw at turn start
-            yaw_at_turn_start_ = yaw_;
-
-      */
-      /*RCLCPP_INFO(this->get_logger(),
-                  "Front wall! max_idx=%d direction=%.2f yaw_start=%.2f",
-                  max_idx, direction_, yaw_at_turn_start_);*/
-
       RCLCPP_INFO(this->get_logger(), "Front wall detected !");
       is_moving_ = false;
       yaw_at_turn_start_ = yaw_;
+      target_yaw_ = yaw_at_turn_start_ + (degrees_ * M_PI / 180.0);
+      RCLCPP_INFO(this->get_logger(),
+                  "Starting rotation: from %.3f to %.3f rad",
+                  yaw_at_turn_start_, target_yaw_);
       is_turning_ = true;
     }
   }
@@ -82,40 +85,42 @@ private:
     auto msg = geometry_msgs::msg::Twist();
 
     if (!is_turning_ && is_moving_) {
-#if 0
-      // Normalisation dans [-pi, pi] : sans elle, un cap qui traverse +/-pi
-      // fait sauter la difference a +/-2pi et le virage s'arrete aussitot.
-      double delta = yaw_ - yaw_at_turn_start_;
-      double turned_so_far = std::atan2(std::sin(delta), std::cos(delta));
-
-      if (std::abs(turned_so_far) < std::abs(direction_) - 0.1) {
-        msg.linear.x = 0.1;
-        msg.angular.z = direction_ / 2;
-        RCLCPP_INFO(this->get_logger(), "Turning... turned=%.2f target=%.2f",
-                    turned_so_far, direction_);
-      } else {
-        is_turning_ = false;
-        RCLCPP_INFO(this->get_logger(), "Turn complete.");
-      }
-#endif
       RCLCPP_INFO(this->get_logger(), "Moving Forward");
       msg.linear.x = 0.5;
       msg.angular.z = 0.0;
     } else if (is_turning_) {
       msg.linear.x = 0.0;
-      msg.angular.z = 2.0;
-      RCLCPP_INFO(this->get_logger(), "Rotating.");
 
-      double delta = yaw_ - yaw_at_turn_start_;
-      if (std::abs(delta) < 0.2) {
-        is_turning_ = false;
-        RCLCPP_INFO(this->get_logger(), "Rotation Complete.");
+      if (degrees_ != 0.0) {
+        // Rotate in direction of degrees_
+        msg.angular.z = (degrees_ < 0) ? -1.5 : 1.5;
+
+        // Calculate angle difference (handle wrap-around)
+        double yaw_diff = target_yaw_ - yaw_;
+
+        // Normalize to [-pi, pi]
+        while (yaw_diff > M_PI)
+          yaw_diff -= 2 * M_PI;
+        while (yaw_diff < -M_PI)
+          yaw_diff += 2 * M_PI;
+
+        RCLCPP_INFO(this->get_logger(),
+                    "Rotating, yaw_diff: %.3f rad (%.1f deg)", yaw_diff,
+                    yaw_diff * 180 / M_PI);
+
+        // Stop when close enough (tolerance ~0.05 rad ≈ 3°)
+        if (std::abs(yaw_diff) < 0.05) {
+          is_turning_ = false;
+          RCLCPP_INFO(this->get_logger(), "Rotation Complete.");
+        }
+      } else {
+        msg.angular.z = 0.0;
       }
 
     } else {
       msg.linear.x = 0.0;
       msg.angular.z = 0.0;
-      RCLCPP_INFO(this->get_logger(), "Robot Stropped.");
+      RCLCPP_INFO(this->get_logger(), "Robot Stopped.");
     }
 
     publisher_->publish(msg);
@@ -133,11 +138,12 @@ private:
   float obstacle_;
   int degrees_;
   bool is_moving_;
+  bool laser_initialized_;
 
   double yaw_;
   double yaw_at_turn_start_;
+  double target_yaw_;
   bool is_turning_;
-
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr
       subscriber_laser_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr publisher_;
