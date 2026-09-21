@@ -1,3 +1,4 @@
+#include "custom_interface/srv/go_to_loading.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -10,14 +11,14 @@
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <tf2/LinearMath/Quaternion.h>
 
-class PreApproach : public rclcpp::Node {
+class PreApproachV2 : public rclcpp::Node {
 public:
-  PreApproach()
-      : Node("pre_approach_node"), mission_complete_(false), is_moving_(true),
-        is_turning_(false), laser_initialized_(false), yaw_(0.0),
-        yaw_at_turn_start_(0.0), target_yaw_(0.0) {
+  PreApproachV2()
+      : Node("pre_approach_v2_node"), mission_complete_(false),
+        is_moving_(true), is_turning_(false), laser_initialized_(false),
+        yaw_(0.0), yaw_at_turn_start_(0.0), target_yaw_(0.0) {
 
-    RCLCPP_INFO(this->get_logger(), "Preapproach : Constructor");
+    RCLCPP_INFO(this->get_logger(), "PreapproachV2 : Constructor");
 
     // Declare parameters with default values
     this->declare_parameter<double>("obstacle", 0.0);
@@ -39,19 +40,19 @@ public:
 
     auto timer_period = std::chrono::milliseconds(100);
     timer_ = this->create_wall_timer(
-        timer_period, std::bind(&PreApproach::timer_callback, this));
+        timer_period, std::bind(&PreApproachV2::timer_callback, this));
 
     subscriber_laser_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
         "/scan", qos_profile,
-        std::bind(&PreApproach::laser_callback, this, std::placeholders::_1));
+        std::bind(&PreApproachV2::laser_callback, this, std::placeholders::_1));
 
     subscriber_odom_ = this->create_subscription<nav_msgs::msg::Odometry>(
         "/odom", qos_profile,
-        std::bind(&PreApproach::odom_callback, this, std::placeholders::_1));
+        std::bind(&PreApproachV2::odom_callback, this, std::placeholders::_1));
 
     mission_timer_ = this->create_wall_timer(
         std::chrono::milliseconds(500),
-        std::bind(&PreApproach::check_mission_complete, this));
+        std::bind(&PreApproachV2::check_mission_complete, this));
   }
 
 private:
@@ -170,7 +171,7 @@ private:
 
 int main(int argc, char *argv[]) {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<PreApproach>());
+  rclcpp::spin(std::make_shared<PreApproachV2>());
   rclcpp::shutdown();
   return 0;
 }

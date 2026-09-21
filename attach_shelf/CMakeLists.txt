@@ -13,9 +13,19 @@ find_package(sensor_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
+# Service dependencies
+find_package(std_srvs REQUIRED)
+find_package(custom_interface REQUIRED)  # ← Ajoute ça
 
-add_executable(preapproach_exe src/pre_approach.cpp)
-ament_target_dependencies(preapproach_exe rclcpp geometry_msgs sensor_msgs rclcpp nav_msgs tf2 tf2_geometry_msgs)
+
+add_executable(pre_approach_exe src/pre_approach.cpp)
+ament_target_dependencies(pre_approach_exe rclcpp geometry_msgs sensor_msgs rclcpp nav_msgs tf2 tf2_geometry_msgs)
+
+add_executable(pre_approach_v2_exe src/pre_approach_v2.cpp)
+ament_target_dependencies(pre_approach_v2_exe rclcpp geometry_msgs sensor_msgs rclcpp nav_msgs tf2 tf2_geometry_msgs std_srvs custom_interface)
+
+add_executable(approach_service_server_exe src/approach_service_server.cpp)
+ament_target_dependencies(approach_service_server_exe rclcpp geometry_msgs sensor_msgs rclcpp nav_msgs tf2 tf2_geometry_msgs sensor_msgs std_srvs custom_interface)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -30,7 +40,9 @@ if(BUILD_TESTING)
 endif()
 
 install(TARGETS
-  preapproach_exe
+  pre_approach_exe
+  pre_approach_v2_exe
+  approach_service_server_exe
   DESTINATION lib/${PROJECT_NAME}
 )
 
