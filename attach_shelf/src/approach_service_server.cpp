@@ -1,69 +1,52 @@
-#include "custom_interface/srv/go_to_loading.hpp"
-#include <chrono>
+#include <functional>
 #include <memory>
-#include <rclcpp/rclcpp.hpp>
-#include <std_srvs/srv/trigger.hpp>
 
-using namespace std::chrono_literals;
+#include "custom_interface/srv/go_to_loading.hpp"
+#include "rclcpp/rclcpp.hpp"
 
-class ApproachService : public rclcpp::Node {
+using GoToLoading = custom_interface::srv::GoToLoading;
+
+class ApproachServiceServer : public rclcpp::Node {
 public:
-  ApproachService() : Node("approach_shelf") {
-    // Create the Service Client object
-    // This defines the name ('/text_recognition_service') and type (Trigger) of
-    // the Service Server to connect to.
-    std::string name_service = "/approach_shelf";
-    client_ = this->create_client<std_srvs::srv::Trigger>(name_service);
+  ApproachServiceServer() : Node("approach_service_server") {
+    service_ = this->create_service<GoToLoading>(
+        "/approach_shelf",
+        std::bind(&ApproachServiceServer::handle_request, this,
+                  std::placeholders::_1, std::placeholders::_2));
 
-    // Wait for the service to be available (checks every second)
-    while (!client_->wait_for_service(1s)) {
-      if (!rclcpp::ok()) {
-        RCLCPP_ERROR(this->get_logger(),
-                     "Interrupted while waiting for the service. Exiting.");
-        return;
-      }
-      RCLCPP_INFO(this->get_logger(),
-                  "Service %s not available, waiting again...",
-                  name_service.c_str());
-    }
-  }
-
-  void send_request() {
-    // Create an empty Trigger request
-    auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
-
-    // Send the request asynchronously
-    auto result_future = client_->async_send_request(request);
-
-    // Wait for the result
-    if (rclcpp::spin_until_future_complete(this->get_node_base_interface(),
-                                           result_future) ==
-        rclcpp::FutureReturnCode::SUCCESS) {
-      auto response = result_future.get();
-      // Log the service response
-      RCLCPP_INFO(this->get_logger(), "Success: %s, Detected text: %s",
-                  response->success ? "true" : "false",
-                  response->message.c_str());
-    } else {
-      RCLCPP_ERROR(this->get_logger(), "Failed to call service");
-    }
+    RCLCPP_INFO(this->get_logger(),
+                "Service /approach_shelf is ready");
   }
 
 private:
-  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr client_;
+  void handle_request(const std::shared_ptr<GoToLoading::Request> request,
+                      std::shared_ptr<GoToLoading::Response> response) {
+    RCLCPP_INFO(this->get_logger(),
+                "Request received: attach_to_shelf=%s",
+                request->attach_to_shelf ? "true" : "false");
+
+    if (request->attach_to_shelf) {
+      RCLCPP_INFO(this->get_logger(),
+                  "Requested behavior: detect shelf, publish cart_frame, "
+                  "move underneath it, then lift it");
+    } else {
+      RCLCPP_INFO(this->get_logger(),
+                  "Requested behavior: detect shelf and publish cart_frame "
+                  "without moving or lifting");
+    }
+
+    // This first skeleton validates only the client/server communication.
+    // Detection, motion and lifting are not implemented yet, so reporting
+    // success here would be incorrect.
+    response->complete = false;
+  }
+
+  rclcpp::Service<GoToLoading>::SharedPtr service_;
 };
 
 int main(int argc, char **argv) {
-  // Initialize the ROS communication
   rclcpp::init(argc, argv);
-
-  // Declare the node constructor
-  auto client = std::make_shared<ApproachService>();
-
-  // Run the send_request() method
-  client->send_request();
-
-  // Shutdown the ROS communication
+  rclcpp::spin(std::make_shared<ApproachServiceServer>());
   rclcpp::shutdown();
   return 0;
 }
