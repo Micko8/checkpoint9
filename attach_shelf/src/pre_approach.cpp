@@ -13,9 +13,9 @@
 class PreApproach : public rclcpp::Node {
 public:
   PreApproach()
-      : Node("preapproach_node"), is_moving_(true), is_turning_(false),
-        laser_initialized_(false), yaw_(0.0), yaw_at_turn_start_(0.0),
-        target_yaw_(0.0) {
+      : Node("preapproach_node"), mission_complete_(false), is_moving_(true),
+        is_turning_(false), laser_initialized_(false), yaw_(0.0),
+        yaw_at_turn_start_(0.0), target_yaw_(0.0) {
 
     RCLCPP_INFO(this->get_logger(), "Preapproach : Constructor");
 
@@ -48,9 +48,20 @@ public:
     subscriber_odom_ = this->create_subscription<nav_msgs::msg::Odometry>(
         "/odom", qos_profile,
         std::bind(&PreApproach::odom_callback, this, std::placeholders::_1));
+
+    mission_timer_ = this->create_wall_timer(
+        std::chrono::milliseconds(500),
+        std::bind(&PreApproach::check_mission_complete, this));
   }
 
 private:
+  void check_mission_complete() {
+    if (!is_turning_ && !is_moving_ && mission_complete_) {
+      RCLCPP_INFO(this->get_logger(), "Mission complete! Shutting down...");
+      rclcpp::shutdown();
+    }
+  }
+
   void laser_callback(const sensor_msgs::msg::LaserScan::SharedPtr msg) {
 
     // Just log initialization once
@@ -114,6 +125,7 @@ private:
         // Stop when close enough (tolerance ~0.05 rad ≈ 3°)
         if (std::abs(yaw_diff) < 0.05) {
           is_turning_ = false;
+          mission_complete_ = true; // ← Flag
           RCLCPP_INFO(this->get_logger(), "Rotation Complete.");
         }
       } else {
@@ -142,11 +154,13 @@ private:
   int degrees_;
   bool is_moving_;
   bool laser_initialized_;
-
   double yaw_;
   double yaw_at_turn_start_;
   double target_yaw_;
   bool is_turning_;
+  bool mission_complete_;
+  rclcpp::TimerBase::SharedPtr mission_timer_;
+
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr
       subscriber_laser_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr publisher_;
