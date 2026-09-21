@@ -27,7 +27,7 @@ add_executable(test_service_client_exe src/test_service_client.cpp)
 ament_target_dependencies(test_service_client_exe rclcpp custom_interface)
 
 add_executable(approach_service_server_exe src/approach_service_server.cpp)
-ament_target_dependencies(approach_service_server_exe rclcpp custom_interface)
+ament_target_dependencies(approach_service_server_exe rclcpp custom_interface sensor_msgs)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
