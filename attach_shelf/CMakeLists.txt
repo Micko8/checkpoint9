@@ -13,6 +13,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
+find_package(tf2_ros REQUIRED)
 # Service dependencies
 find_package(custom_interface REQUIRED)  # ← Ajoute ça
 
@@ -27,7 +28,7 @@ add_executable(test_service_client_exe src/test_service_client.cpp)
 ament_target_dependencies(test_service_client_exe rclcpp custom_interface)
 
 add_executable(approach_service_server_exe src/approach_service_server.cpp)
-ament_target_dependencies(approach_service_server_exe rclcpp custom_interface sensor_msgs)
+ament_target_dependencies(approach_service_server_exe rclcpp geometry_msgs sensor_msgs tf2_ros custom_interface)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

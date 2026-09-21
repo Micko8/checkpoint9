@@ -5,8 +5,10 @@
 #include <vector>
 
 #include "custom_interface/srv/go_to_loading.hpp"
+#include "geometry_msgs/msg/transform_stamped.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/laser_scan.hpp"
+#include "tf2_ros/transform_broadcaster.h"
 
 using GoToLoading = custom_interface::srv::GoToLoading;
 
@@ -20,6 +22,9 @@ public:
         this->get_parameter("intensity_threshold").as_double();
     minimum_leg_separation_ =
         this->get_parameter("minimum_leg_separation").as_int();
+
+    tf_broadcaster_ =
+        std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
     scan_subscription_ =
         this->create_subscription<sensor_msgs::msg::LaserScan>(
@@ -81,6 +86,10 @@ private:
     cart_y_ = (first_y + second_y) / 2.0;
     legs_detected_ = true;
 
+    if (approach_requested_) {
+      publish_cart_frame(*scan);
+    }
+
     if (first_leg_index != last_first_leg_index_ ||
         second_leg_index != last_second_leg_index_) {
       RCLCPP_INFO(this->get_logger(),
@@ -130,11 +139,40 @@ private:
            range <= scan.range_max;
   }
 
+  void publish_cart_frame(const sensor_msgs::msg::LaserScan &scan) {
+    geometry_msgs::msg::TransformStamped transform;
+    transform.header.stamp = scan.header.stamp;
+    transform.header.frame_id = scan.header.frame_id;
+    transform.child_frame_id = "cart_frame";
+
+    transform.transform.translation.x = cart_x_;
+    transform.transform.translation.y = cart_y_;
+    transform.transform.translation.z = 0.0;
+
+    // cart_frame keeps the same orientation as the laser frame. For this
+    // exercise, only the position between the two legs is needed.
+    transform.transform.rotation.x = 0.0;
+    transform.transform.rotation.y = 0.0;
+    transform.transform.rotation.z = 0.0;
+    transform.transform.rotation.w = 1.0;
+
+    tf_broadcaster_->sendTransform(transform);
+  }
+
   void handle_request(const std::shared_ptr<GoToLoading::Request> request,
                       std::shared_ptr<GoToLoading::Response> response) {
     RCLCPP_INFO(this->get_logger(),
                 "Request received: attach_to_shelf=%s",
                 request->attach_to_shelf ? "true" : "false");
+
+    if (!request->attach_to_shelf) {
+      RCLCPP_WARN(this->get_logger(),
+                  "Final approach rejected: attach_to_shelf is false");
+      response->complete = false;
+      return;
+    }
+
+    approach_requested_ = true;
 
     if (!scan_received_) {
       RCLCPP_WARN(this->get_logger(),
@@ -155,17 +193,11 @@ private:
                 "Shelf center available at x=%.3f m, y=%.3f m",
                 cart_x_, cart_y_);
 
-    if (request->attach_to_shelf) {
-      RCLCPP_INFO(this->get_logger(),
-                  "Requested behavior: detect shelf, publish cart_frame, "
-                  "move underneath it, then lift it");
-    } else {
-      RCLCPP_INFO(this->get_logger(),
-                  "Requested behavior: detect shelf and publish cart_frame "
-                  "without moving or lifting");
-    }
+    RCLCPP_INFO(this->get_logger(),
+                "cart_frame publication enabled; movement and lifting are "
+                "not implemented yet");
 
-    // Leg detection is implemented, but TF publication, motion and lifting
+    // Detection and TF publication are implemented, but motion and lifting
     // are not. Reporting mission success here would therefore be incorrect.
     response->complete = false;
   }
@@ -173,11 +205,13 @@ private:
   rclcpp::Service<GoToLoading>::SharedPtr service_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr
       scan_subscription_;
+  std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 
   double intensity_threshold_{8000.0};
   int minimum_leg_separation_{10};
   bool scan_received_{false};
   bool legs_detected_{false};
+  bool approach_requested_{false};
   bool missing_intensities_reported_{false};
   double cart_x_{0.0};
   double cart_y_{0.0};
