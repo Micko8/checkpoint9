@@ -13,6 +13,7 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/laser_scan.hpp"
+#include "std_msgs/msg/string.hpp"
 #include "tf2/exceptions.h"
 #include "tf2/time.h"
 #include "tf2_ros/buffer.h"
@@ -40,6 +41,8 @@ public:
 
     velocity_publisher_ =
         this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
+    elevator_publisher_ =
+        this->create_publisher<std_msgs::msg::String>("/elevator_up", 10);
 
     odom_subscription_ = this->create_subscription<nav_msgs::msg::Odometry>(
         "/odom", 10,
@@ -72,6 +75,7 @@ private:
     IDLE,
     APPROACHING_CART,
     MOVING_FORWARD,
+    LIFTING,
     COMPLETE
   };
 
@@ -183,6 +187,8 @@ private:
       control_approach(command);
     } else if (motion_state_ == MotionState::MOVING_FORWARD) {
       control_forward_motion(command);
+    } else if (motion_state_ == MotionState::LIFTING) {
+      command_lift();
     }
 
     if (motion_state_ != MotionState::IDLE) {
@@ -247,7 +253,7 @@ private:
         std::hypot(odom_x_ - forward_start_x_, odom_y_ - forward_start_y_);
 
     if (travelled >= final_forward_distance_) {
-      motion_state_ = MotionState::COMPLETE;
+      motion_state_ = MotionState::LIFTING;
       RCLCPP_INFO(this->get_logger(),
                   "Final forward motion complete: travelled %.3f m",
                   travelled);
@@ -255,6 +261,15 @@ private:
     }
 
     command.linear.x = final_forward_speed_;
+  }
+
+  void command_lift() {
+    std_msgs::msg::String command;
+    elevator_publisher_->publish(command);
+    motion_state_ = MotionState::COMPLETE;
+
+    RCLCPP_INFO(this->get_logger(),
+                "Lift command published on /elevator_up; mission complete");
   }
 
   double limit(double value, double maximum_absolute_value) const {
@@ -321,8 +336,8 @@ private:
 
     motion_state_ = MotionState::APPROACHING_CART;
 
-    // Motion now runs from the control timer. The service completion and
-    // lifting behavior will be connected in the next step.
+    // Motion and lifting now run from the control timer. Connecting the
+    // service response to the COMPLETE state remains for the next step.
     response->complete = false;
   }
 
@@ -332,6 +347,7 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_subscription_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr
       velocity_publisher_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr elevator_publisher_;
   rclcpp::TimerBase::SharedPtr control_timer_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
