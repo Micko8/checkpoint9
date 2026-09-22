@@ -1,10 +1,12 @@
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <functional>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "custom_interface/srv/go_to_loading.hpp"
@@ -55,10 +57,14 @@ public:
             std::bind(&ApproachServiceServer::scan_callback, this,
                       std::placeholders::_1));
 
+    service_callback_group_ = this->create_callback_group(
+        rclcpp::CallbackGroupType::MutuallyExclusive);
+
     service_ = this->create_service<GoToLoading>(
         "/approach_shelf",
         std::bind(&ApproachServiceServer::handle_request, this,
-                  std::placeholders::_1, std::placeholders::_2));
+                  std::placeholders::_1, std::placeholders::_2),
+        rmw_qos_profile_services_default, service_callback_group_);
 
     control_timer_ = this->create_wall_timer(
         std::chrono::milliseconds(100),
@@ -264,12 +270,24 @@ private:
   }
 
   void command_lift() {
-    std_msgs::msg::String command;
-    elevator_publisher_->publish(command);
-    motion_state_ = MotionState::COMPLETE;
+    if (!lift_command_sent_) {
+      elevator_publisher_->publish(std_msgs::msg::String());
+      lift_command_sent_ = true;
+      lift_command_time_ = std::chrono::steady_clock::now();
 
-    RCLCPP_INFO(this->get_logger(),
-                "Lift command published on /elevator_up; mission complete");
+      RCLCPP_INFO(this->get_logger(),
+                  "Lift command published on /elevator_up");
+      return;
+    }
+
+    const auto lifting_duration =
+        std::chrono::steady_clock::now() - lift_command_time_;
+
+    if (lifting_duration >= lift_wait_duration_) {
+      motion_state_ = MotionState::COMPLETE;
+      lifting_done_ = true;
+      RCLCPP_INFO(this->get_logger(), "Lifting complete; mission complete");
+    }
   }
 
   double limit(double value, double maximum_absolute_value) const {
@@ -328,20 +346,39 @@ private:
     approach_requested_ = true;
 
     RCLCPP_INFO(this->get_logger(),
-                "Shelf center available at x=%.3f m, y=%.3f m",
-                cart_x_, cart_y_);
-
-    RCLCPP_INFO(this->get_logger(),
                 "cart_frame publication enabled; starting approach motion");
 
+    lifting_done_ = false;
+    lift_command_sent_ = false;
     motion_state_ = MotionState::APPROACHING_CART;
 
-    // Motion and lifting now run from the control timer. Connecting the
-    // service response to the COMPLETE state remains for the next step.
-    response->complete = false;
+    // The second executor thread continues running the control timer while
+    // this service callback periodically checks the completion flag.
+    const auto mission_start = std::chrono::steady_clock::now();
+    while (rclcpp::ok() && !lifting_done_ &&
+           (std::chrono::steady_clock::now() - mission_start) <
+               mission_timeout_) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    response->complete = lifting_done_;
+
+    if (lifting_done_) {
+      RCLCPP_INFO(this->get_logger(),
+                  "Final approach service completed successfully");
+      return;
+    }
+
+    motion_state_ = MotionState::IDLE;
+    approach_requested_ = false;
+    velocity_publisher_->publish(geometry_msgs::msg::Twist());
+    RCLCPP_ERROR(this->get_logger(),
+                 "Final approach timed out after %ld seconds",
+                 static_cast<long>(mission_timeout_.count()));
   }
 
   rclcpp::Service<GoToLoading>::SharedPtr service_;
+  rclcpp::CallbackGroup::SharedPtr service_callback_group_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr
       scan_subscription_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_subscription_;
@@ -355,9 +392,9 @@ private:
 
   double intensity_threshold_{8000.0};
   int minimum_leg_separation_{10};
-  bool scan_received_{false};
-  bool legs_detected_{false};
-  bool approach_requested_{false};
+  std::atomic<bool> scan_received_{false};
+  std::atomic<bool> legs_detected_{false};
+  std::atomic<bool> approach_requested_{false};
   bool missing_intensities_reported_{false};
   bool odom_received_{false};
   bool tf_error_reported_{false};
@@ -370,7 +407,12 @@ private:
   std::size_t last_first_leg_index_{0};
   std::size_t last_second_leg_index_{0};
 
-  MotionState motion_state_{MotionState::IDLE};
+  std::atomic<MotionState> motion_state_{MotionState::IDLE};
+  std::atomic<bool> lifting_done_{false};
+  std::atomic<bool> lift_command_sent_{false};
+  std::chrono::steady_clock::time_point lift_command_time_{};
+  const std::chrono::seconds mission_timeout_{120};
+  const std::chrono::seconds lift_wait_duration_{1};
   const std::string robot_base_frame_{"robot_base_link"};
   const double cart_position_tolerance_{0.05};
   const double approach_linear_speed_{0.12};
@@ -383,7 +425,13 @@ private:
 
 int main(int argc, char **argv) {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<ApproachServiceServer>());
+
+  auto node = std::make_shared<ApproachServiceServer>();
+  rclcpp::executors::MultiThreadedExecutor executor(
+      rclcpp::ExecutorOptions(), 2);
+  executor.add_node(node);
+  executor.spin();
+
   rclcpp::shutdown();
   return 0;
 }
