@@ -9,7 +9,6 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
-find_package(composition REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
@@ -63,11 +62,12 @@ ament_target_dependencies(attach_server_component
   "sensor_msgs"
   "std_msgs"
   "tf2"
+  "tf2_geometry_msgs"
   "tf2_ros")
 rclcpp_components_register_nodes(attach_server_component "my_components::AttachServer")
 set(node_plugins "${node_plugins}my_components::AttachServer;$<TARGET_FILE:attach_server_component>\n")
 
-# Manual composition : exécutable qui instancie AttachServer à la main
+# Manual composition : exÃ©cutable qui instancie AttachServer Ã  la main
 add_executable(manual_composition src/manual_composition.cpp)
 target_link_libraries(manual_composition attach_server_component)
 ament_target_dependencies(manual_composition "rclcpp")
@@ -100,6 +100,9 @@ install(TARGETS
   DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME})
+
+install(DIRECTORY rviz_config
   DESTINATION share/${PROJECT_NAME})
 
 ament_package()

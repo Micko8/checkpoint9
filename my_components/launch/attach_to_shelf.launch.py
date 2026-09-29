@@ -1,14 +1,25 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import ComposableNodeContainer
+from launch.substitutions import PathJoinSubstitution
+from launch_ros.actions import ComposableNodeContainer, Node
 from launch_ros.descriptions import ComposableNode
-from launch_ros.parameter_descriptions import ParameterValue
+from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
-    obstacle = LaunchConfiguration("obstacle")
-    degrees = LaunchConfiguration("degrees")
+    rviz_config_path = PathJoinSubstitution([
+        FindPackageShare("my_components"),
+        "rviz_config",
+        "config.rviz",
+    ])
+
+    rviz_node = Node(
+        package="rviz2",
+        executable="rviz2",
+        name="rviz_node",
+        output="screen",
+        arguments=["-d", rviz_config_path],
+        parameters=[{"use_sim_time": True}],
+    )
 
     container = ComposableNodeContainer(
         name="my_container",
@@ -21,17 +32,13 @@ def generate_launch_description():
                 package="my_components",
                 plugin="my_components::PreApproach",
                 name="pre_approach",
-                parameters=[
-                    {
-                        "obstacle": ParameterValue(obstacle, value_type=float),
-                        "degrees": ParameterValue(degrees, value_type=int),
-                    }
-                ],
+                parameters=[{"use_sim_time": True}],
             ),
             ComposableNode(
                 package="my_components",
                 plugin="my_components::AttachServer",
                 name="attach_server",
+                parameters=[{"use_sim_time": True}],
             ),
         ],
         output="screen",
@@ -39,8 +46,7 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
-            DeclareLaunchArgument("obstacle", default_value="0.3"),
-            DeclareLaunchArgument("degrees", default_value="-90"),
+            rviz_node,
             container,
         ]
     )

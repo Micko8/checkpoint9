@@ -53,7 +53,8 @@ private:
   bool valid_range(const sensor_msgs::msg::LaserScan &scan,
                    std::size_t index) const;
   double limit(double value, double maximum_absolute_value) const;
-  void publish_cart_frame(const sensor_msgs::msg::LaserScan &scan);
+  bool lock_cart_target(const sensor_msgs::msg::LaserScan &scan);
+  void publish_cart_frame();
 
   // Motion control
   void control_approach(geometry_msgs::msg::Twist &command);
@@ -81,11 +82,15 @@ private:
   std::atomic<bool> scan_received_{false};
   std::atomic<bool> legs_detected_{false};
   std::atomic<bool> approach_requested_{false};
+  std::atomic<bool> target_locked_{false};
   bool missing_intensities_reported_{false};
   bool odom_received_{false};
   bool tf_error_reported_{false};
+  bool target_lock_warning_reported_{false};
   double cart_x_{0.0};
   double cart_y_{0.0};
+  double locked_cart_odom_x_{0.0};
+  double locked_cart_odom_y_{0.0};
   double odom_x_{0.0};
   double odom_y_{0.0};
   double forward_start_x_{0.0};
@@ -101,12 +106,13 @@ private:
   // Constants
   const std::chrono::seconds mission_timeout_{120};
   const std::chrono::seconds lift_wait_duration_{1};
+  const std::string fixed_frame_{"odom"};
   const std::string robot_base_frame_{"robot_base_link"};
-  const double cart_position_tolerance_{0.05};
-  const double approach_linear_speed_{0.12};
-  const double angular_gain_{1.5};
-  const double maximum_angular_speed_{0.5};
-  const double maximum_driving_angle_{0.25};
+  const double cart_position_tolerance_{0.08};
+  const double lateral_position_tolerance_{0.06};
+  const double approach_linear_speed_{0.10};
+  const double angular_gain_{0.8};
+  const double maximum_angular_speed_{0.30};
   const double final_forward_distance_{0.35};
   const double final_forward_speed_{0.10};
 };

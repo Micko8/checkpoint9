@@ -7,8 +7,10 @@
 #include <functional>
 #include <thread>
 
+#include "geometry_msgs/msg/point_stamped.hpp"
 #include "tf2/exceptions.h"
 #include "tf2/time.h"
+#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
 namespace my_components {
 
@@ -32,26 +34,24 @@ AttachServer::AttachServer(const rclcpp::NodeOptions &options)
 
   odom_subscription_ = this->create_subscription<nav_msgs::msg::Odometry>(
       "/odom", 10,
-      std::bind(&AttachServer::odom_callback, this,
-                std::placeholders::_1));
+      std::bind(&AttachServer::odom_callback, this, std::placeholders::_1));
 
   scan_subscription_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
       "/scan", rclcpp::SensorDataQoS(),
-      std::bind(&AttachServer::scan_callback, this,
-                std::placeholders::_1));
+      std::bind(&AttachServer::scan_callback, this, std::placeholders::_1));
 
   service_callback_group_ =
       this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
 
   service_ = this->create_service<GoToLoading>(
       "/approach_shelf",
-      std::bind(&AttachServer::handle_request, this,
-                std::placeholders::_1, std::placeholders::_2),
+      std::bind(&AttachServer::handle_request, this, std::placeholders::_1,
+                std::placeholders::_2),
       rmw_qos_profile_services_default, service_callback_group_);
 
-  control_timer_ = this->create_wall_timer(
-      std::chrono::milliseconds(100),
-      std::bind(&AttachServer::control_callback, this));
+  control_timer_ =
+      this->create_wall_timer(std::chrono::milliseconds(100),
+                              std::bind(&AttachServer::control_callback, this));
 
   RCLCPP_INFO(this->get_logger(),
               "Service /approach_shelf is ready "
@@ -70,19 +70,27 @@ void AttachServer::scan_callback(
                   "The /scan message contains no intensity values");
       missing_intensities_reported_ = true;
     }
+    if (target_locked_) {
+      publish_cart_frame();
+    }
     return;
   }
 
   std::size_t first_leg_index = 0;
   std::size_t second_leg_index = 0;
 
-  if (!find_leg_indices(scan->intensities, first_leg_index,
-                        second_leg_index)) {
+  if (!find_leg_indices(scan->intensities, first_leg_index, second_leg_index)) {
+    if (target_locked_) {
+      publish_cart_frame();
+    }
     return;
   }
 
   if (!valid_range(*scan, first_leg_index) ||
       !valid_range(*scan, second_leg_index)) {
+    if (target_locked_) {
+      publish_cart_frame();
+    }
     return;
   }
 
@@ -102,8 +110,12 @@ void AttachServer::scan_callback(
   cart_y_ = (first_y + second_y) / 2.0;
   legs_detected_ = true;
 
-  if (approach_requested_) {
-    publish_cart_frame(*scan);
+  if (approach_requested_ && !target_locked_) {
+    lock_cart_target(*scan);
+  }
+
+  if (target_locked_) {
+    publish_cart_frame();
   }
 
   if (first_leg_index != last_first_leg_index_ ||
@@ -117,9 +129,9 @@ void AttachServer::scan_callback(
   }
 }
 
-bool AttachServer::find_leg_indices(
-    const std::vector<float> &intensities, std::size_t &first_leg_index,
-    std::size_t &second_leg_index) const {
+bool AttachServer::find_leg_indices(const std::vector<float> &intensities,
+                                    std::size_t &first_leg_index,
+                                    std::size_t &second_leg_index) const {
   bool first_leg_found = false;
 
   for (std::size_t index = 0; index < intensities.size(); ++index) {
@@ -145,7 +157,7 @@ bool AttachServer::find_leg_indices(
 }
 
 bool AttachServer::valid_range(const sensor_msgs::msg::LaserScan &scan,
-                                        std::size_t index) const {
+                               std::size_t index) const {
   if (index >= scan.ranges.size()) {
     return false;
   }
@@ -178,8 +190,11 @@ void AttachServer::control_callback() {
   }
 }
 
-void AttachServer::control_approach(
-    geometry_msgs::msg::Twist &command) {
+void AttachServer::control_approach(geometry_msgs::msg::Twist &command) {
+  if (target_locked_) {
+    publish_cart_frame();
+  }
+
   geometry_msgs::msg::TransformStamped robot_to_cart;
 
   try {
@@ -199,10 +214,9 @@ void AttachServer::control_approach(
 
   const double target_x = robot_to_cart.transform.translation.x;
   const double target_y = robot_to_cart.transform.translation.y;
-  const double distance = std::hypot(target_x, target_y);
-  const double angle_error = std::atan2(target_y, target_x);
 
-  if (distance <= cart_position_tolerance_) {
+  if (target_x <= cart_position_tolerance_ &&
+      std::abs(target_y) <= lateral_position_tolerance_) {
     if (!odom_received_) {
       return;
     }
@@ -211,22 +225,20 @@ void AttachServer::control_approach(
     forward_start_y_ = odom_y_;
     motion_state_ = MotionState::MOVING_FORWARD;
     RCLCPP_INFO(this->get_logger(),
-                "cart_frame reached; starting final %.2f m motion",
+                "Locked cart_frame reached; starting final %.2f m motion",
                 final_forward_distance_);
     return;
   }
 
-  command.angular.z = limit(angular_gain_ * angle_error, maximum_angular_speed_);
+  command.angular.z = limit(angular_gain_ * target_y, maximum_angular_speed_);
 
-  // First face the target. Moving while the angular error is large would
-  // create a wide curve and make the controller less predictable.
-  if (std::abs(angle_error) < maximum_driving_angle_) {
-    command.linear.x = std::min(approach_linear_speed_, distance);
+  if (target_x > cart_position_tolerance_) {
+    command.linear.x = std::min(approach_linear_speed_, 0.5 * target_x);
+    command.linear.x = std::max(0.03, command.linear.x);
   }
 }
 
-void AttachServer::control_forward_motion(
-    geometry_msgs::msg::Twist &command) {
+void AttachServer::control_forward_motion(geometry_msgs::msg::Twist &command) {
   if (!odom_received_) {
     return;
   }
@@ -264,25 +276,57 @@ void AttachServer::command_lift() {
   }
 }
 
-double AttachServer::limit(double value,
-                                    double maximum_absolute_value) const {
+double AttachServer::limit(double value, double maximum_absolute_value) const {
   return std::max(-maximum_absolute_value,
                   std::min(value, maximum_absolute_value));
 }
 
-void AttachServer::publish_cart_frame(
-    const sensor_msgs::msg::LaserScan &scan) {
+bool AttachServer::lock_cart_target(const sensor_msgs::msg::LaserScan &scan) {
+  geometry_msgs::msg::PointStamped cart_in_laser;
+  cart_in_laser.header = scan.header;
+  cart_in_laser.point.x = cart_x_;
+  cart_in_laser.point.y = cart_y_;
+  cart_in_laser.point.z = 0.0;
+
+  try {
+    const auto laser_to_odom = tf_buffer_->lookupTransform(
+        fixed_frame_, scan.header.frame_id, tf2::TimePointZero);
+    geometry_msgs::msg::PointStamped cart_in_odom;
+    tf2::doTransform(cart_in_laser, cart_in_odom, laser_to_odom);
+
+    locked_cart_odom_x_ = cart_in_odom.point.x;
+    locked_cart_odom_y_ = cart_in_odom.point.y;
+    target_locked_ = true;
+    target_lock_warning_reported_ = false;
+
+    RCLCPP_INFO(this->get_logger(),
+                "Locked cart_frame in %s: x=%.3f m, y=%.3f m",
+                fixed_frame_.c_str(), locked_cart_odom_x_, locked_cart_odom_y_);
+    return true;
+  } catch (const tf2::TransformException &exception) {
+    if (!target_lock_warning_reported_) {
+      RCLCPP_WARN(this->get_logger(), "Could not lock cart_frame in %s yet: %s",
+                  fixed_frame_.c_str(), exception.what());
+      target_lock_warning_reported_ = true;
+    }
+    return false;
+  }
+}
+
+void AttachServer::publish_cart_frame() {
+  if (!target_locked_) {
+    return;
+  }
+
   geometry_msgs::msg::TransformStamped transform;
-  transform.header.stamp = scan.header.stamp;
-  transform.header.frame_id = scan.header.frame_id;
+  transform.header.stamp = this->now();
+  transform.header.frame_id = fixed_frame_;
   transform.child_frame_id = "cart_frame";
 
-  transform.transform.translation.x = cart_x_;
-  transform.transform.translation.y = cart_y_;
+  transform.transform.translation.x = locked_cart_odom_x_;
+  transform.transform.translation.y = locked_cart_odom_y_;
   transform.transform.translation.z = 0.0;
 
-  // cart_frame keeps the same orientation as the laser frame. For this
-  // exercise, only the position between the two legs is needed.
   transform.transform.rotation.x = 0.0;
   transform.transform.rotation.y = 0.0;
   transform.transform.rotation.z = 0.0;
@@ -320,9 +364,11 @@ void AttachServer::handle_request(
   }
 
   approach_requested_ = true;
+  target_locked_ = false;
+  target_lock_warning_reported_ = false;
 
   RCLCPP_INFO(this->get_logger(),
-              "cart_frame publication enabled; starting approach motion");
+              "cart_frame locking enabled; starting approach motion");
 
   lifting_done_ = false;
   lift_command_sent_ = false;
@@ -332,7 +378,8 @@ void AttachServer::handle_request(
   // control timer while this service callback checks the completion flag.
   const auto mission_start = std::chrono::steady_clock::now();
   while (rclcpp::ok() && !lifting_done_ &&
-         (std::chrono::steady_clock::now() - mission_start) < mission_timeout_) {
+         (std::chrono::steady_clock::now() - mission_start) <
+             mission_timeout_) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
 
@@ -346,6 +393,7 @@ void AttachServer::handle_request(
 
   motion_state_ = MotionState::IDLE;
   approach_requested_ = false;
+  target_locked_ = false;
   velocity_publisher_->publish(geometry_msgs::msg::Twist());
   RCLCPP_ERROR(this->get_logger(), "Final approach timed out after %ld seconds",
                static_cast<long>(mission_timeout_.count()));
