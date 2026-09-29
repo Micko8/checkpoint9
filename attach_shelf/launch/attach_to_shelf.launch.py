@@ -48,8 +48,8 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        DeclareLaunchArgument('obstacle', default_value='0.0'),
-        DeclareLaunchArgument('degrees', default_value='0'),
+        DeclareLaunchArgument('obstacle', default_value='0.3'),
+        DeclareLaunchArgument('degrees', default_value='-90'),
         DeclareLaunchArgument('final_approach', default_value='false'),
         rviz_launch,
         approach_server,

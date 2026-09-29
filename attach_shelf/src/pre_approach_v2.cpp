@@ -17,8 +17,8 @@ using GoToLoading = custom_interface::srv::GoToLoading;
 class PreApproachV2 : public rclcpp::Node {
 public:
   PreApproachV2() : Node("pre_approach_v2_node") {
-    this->declare_parameter<double>("obstacle", 0.0);
-    this->declare_parameter<int>("degrees", 0);
+    this->declare_parameter<double>("obstacle", 0.3);
+    this->declare_parameter<int>("degrees", -90);
     this->declare_parameter<bool>("final_approach", false);
 
     obstacle_ = this->get_parameter("obstacle").as_double();
@@ -34,9 +34,8 @@ public:
     qos_profile.reliability(RMW_QOS_POLICY_RELIABILITY_RELIABLE);
     qos_profile.durability(RMW_QOS_POLICY_DURABILITY_VOLATILE);
 
-    velocity_publisher_ =
-        this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel",
-                                                          qos_profile);
+    velocity_publisher_ = this->create_publisher<geometry_msgs::msg::Twist>(
+        "/cmd_vel", qos_profile);
 
     laser_subscription_ =
         this->create_subscription<sensor_msgs::msg::LaserScan>(
@@ -46,8 +45,7 @@ public:
 
     odom_subscription_ = this->create_subscription<nav_msgs::msg::Odometry>(
         "/odom", qos_profile,
-        std::bind(&PreApproachV2::odom_callback, this,
-                  std::placeholders::_1));
+        std::bind(&PreApproachV2::odom_callback, this, std::placeholders::_1));
 
     approach_client_ = this->create_client<GoToLoading>("/approach_shelf");
 
@@ -136,8 +134,7 @@ private:
 
     if (state_ == State::WAITING_FOR_SERVICE || state_ == State::FINISHED) {
       velocity_publisher_.reset();
-      RCLCPP_INFO(this->get_logger(),
-                  "Released ownership of /cmd_vel");
+      RCLCPP_INFO(this->get_logger(), "Released ownership of /cmd_vel");
     }
 
     if (state_ == State::FINISHED) {
@@ -157,8 +154,7 @@ private:
         state_ = State::WAITING_FOR_SERVICE;
         service_call_not_before_ =
             std::chrono::steady_clock::now() + handoff_delay_;
-        RCLCPP_INFO(this->get_logger(),
-                    "Waiting to call /approach_shelf");
+        RCLCPP_INFO(this->get_logger(), "Waiting to call /approach_shelf");
       } else {
         state_ = State::FINISHED;
         RCLCPP_INFO(this->get_logger(),
@@ -191,9 +187,8 @@ private:
     RCLCPP_INFO(this->get_logger(), "Calling /approach_shelf");
 
     approach_client_->async_send_request(
-        request,
-        std::bind(&PreApproachV2::service_response_callback, this,
-                  std::placeholders::_1));
+        request, std::bind(&PreApproachV2::service_response_callback, this,
+                           std::placeholders::_1));
   }
 
   void service_response_callback(
@@ -231,8 +226,8 @@ private:
     return angle;
   }
 
-  double obstacle_{0.0};
-  int degrees_{0};
+  double obstacle_{0.3};
+  int degrees_{-90};
   bool final_approach_{false};
   bool laser_initialized_{false};
   bool service_wait_reported_{false};
@@ -244,8 +239,7 @@ private:
   std::chrono::steady_clock::time_point service_call_not_before_{};
   const std::chrono::milliseconds handoff_delay_{500};
 
-  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr
-      velocity_publisher_;
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr velocity_publisher_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr
       laser_subscription_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_subscription_;
