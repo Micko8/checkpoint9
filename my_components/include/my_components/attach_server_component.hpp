@@ -110,7 +110,7 @@ private:
   const std::string robot_base_frame_{"robot_base_link"};
   const double cart_position_tolerance_{0.08};
   const double lateral_position_tolerance_{0.06};
-  const double approach_linear_speed_{0.10};
+  const double approach_linear_speed_{0.35};
   const double angular_gain_{0.8};
   const double maximum_angular_speed_{0.30};
   const double final_forward_distance_{0.35};
